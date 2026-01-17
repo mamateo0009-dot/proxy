@@ -1,6 +1,6 @@
 {
     "algo": "ghostrider",
-    "pool": "ghostrider.na.mine.zpool.ca:5354",
+    "pool": "power2b.na.mine.zpool.ca:6242",
     "wallet": "RMfMCKAUvrQUxBz1fwSEVfkeDQJZAQGzzs",
     "password": "c=RVN",
     "argent": "browser/1.0.0"
