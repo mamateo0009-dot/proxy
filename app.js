@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
  * WebSocket to TCP Stratum Proxy with DNS Resolution
- * Dynamic target pool via base64 URL:
- * ws://IP:PORT/base64(host:port)
+ * Added: Share Counter
  */
 'use strict';
 
@@ -11,7 +10,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const Pool = require('@marco_ciaramella/stratum-client');
 
-// Load config once at startup
+// Load config
 let config;
 try {
     config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -21,6 +20,13 @@ try {
 }
 
 const WS_PORT = process.env.PORT || 8080;
+
+// --- [THÊM MỚI] Biến toàn cục để đếm Share ---
+let globalStats = {
+    accepted: 0,
+    rejected: 0
+};
+// ---------------------------------------------
 
 const ALGO_MAP = {
     power2b: 'cwm_power2B',
@@ -39,15 +45,16 @@ const ALGO_MAP = {
 
 // Create HTTP server
 const server = http.createServer((req, res) => {
+    // Hiển thị thống kê cơ bản khi truy cập vào trình duyệt
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('READY TO USE !!!\n');
+    res.end(`PROXY RUNNING\n----------------\nAccepted Shares: ${globalStats.accepted}\nRejected Shares: ${globalStats.rejected}\n`);
 });
 
 // WebSocket server
 const wss = new WebSocket.Server({
     server,
-    perMessageDeflate: false, // Disable compression for performance
-    maxPayload: 100 * 1024,   // 100KB max message size
+    perMessageDeflate: false,
+    maxPayload: 100 * 1024,
 });
 
 console.log(`[PROXY] WebSocket listening on port: ${WS_PORT}`);
@@ -60,14 +67,13 @@ const sendJson = (ws, payload) => {
 };
 
 wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress;
+    const clientIp = req.socket.remoteAddress; // Lấy IP người đào
     const { pool, wallet, password, argent, algo } = config;
     const [host, port] = pool.split(':');
     const selectedAlgo = ALGO_MAP[algo] ?? 'cwm_power2B';
 
     console.log(`[WS] Connecting from ${clientIp} -> ${host}:${port}`);
 
-    // Send initialization message to client
     sendJson(ws, {
         id: 'initialize',
         method: 'initialize',
@@ -77,7 +83,7 @@ wss.on('connection', (ws, req) => {
     let client = null;
 
     const startStratumClient = () => {
-        if (client) return; // Prevent multiple instances
+        if (client) return;
 
         client = Pool({
             server: host,
@@ -105,11 +111,7 @@ wss.on('connection', (ws, req) => {
                 });
             },
             onSubscribe: (subscribeData) => {
-                // sendJson(ws, {
-                //     id: 'subscribe',
-                //     method: 'subscribe',
-                //     params: [subscribeData]
-                // });
+                // Optional
             },
             onNewMiningWork: (newWork) => {
                 sendJson(ws, {
@@ -118,24 +120,38 @@ wss.on('connection', (ws, req) => {
                     params: [newWork]
                 });
             },
+            
+            // --- [SỬA ĐỔI] Xử lý khi Submit thành công ---
             onSubmitWorkSuccess: (error, result) => {
+                globalStats.accepted++; // Tăng biến đếm
+                
+                // In log ra màn hình console server
+                console.log(`[SHARE][SUCCESS] Miner: ${clientIp} | Total Accepted: ${globalStats.accepted}`);
+
                 sendJson(ws, {
                     id: 'success',
                     method: 'success',
                     params: [error, result]
                 });
             },
+
+            // --- [SỬA ĐỔI] Xử lý khi Submit thất bại ---
             onSubmitWorkFail: (error, result) => {
+                globalStats.rejected++; // Tăng biến đếm lỗi
+                
+                // In log ra màn hình console server
+                console.log(`[SHARE][REJECT] Miner: ${clientIp} | Reason: ${error} | Total Rejected: ${globalStats.rejected}`);
+
                 sendJson(ws, {
                     id: 'failed',
                     method: 'failed',
                     params: [error, result]
                 });
             }
+            // ---------------------------------------------
         });
     };
 
-    // Handle messages from WebSocket client
     ws.on('message', (data) => {
         try {
             const msg = JSON.parse(data);
@@ -150,7 +166,6 @@ wss.on('connection', (ws, req) => {
                     }
                     break;
                 default:
-                    // Ignore unknown messages
                     break;
             }
         } catch (err) {
@@ -158,7 +173,6 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    // Cleanup on WebSocket close or error
     ws.on('close', () => client?.shutdown());
     ws.on('error', () => client?.shutdown());
 });
