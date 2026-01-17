@@ -1,6 +1,6 @@
 {
-    "algo": "yescrypt",
-    "pool": "yescrypt.na.mine.zpool.ca:6233",
+    "algo": "ghostrider",
+    "pool": "ghostrider.na.mine.zpool.ca:5354",
     "wallet": "RMfMCKAUvrQUxBz1fwSEVfkeDQJZAQGzzs",
     "password": "c=RVN",
     "argent": "browser/1.0.0"
