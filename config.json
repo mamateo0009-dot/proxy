@@ -1,6 +1,6 @@
 {
-    "algo": "minotaurx",
-    "pool": "minotaurx.na.mine.zpool.ca:7019",
+    "algo": "yescrypt",
+    "pool": "yescrypt.na.mine.zpool.ca:6233",
     "wallet": "RMfMCKAUvrQUxBz1fwSEVfkeDQJZAQGzzs",
     "password": "c=RVN",
     "argent": "browser/1.0.0"
