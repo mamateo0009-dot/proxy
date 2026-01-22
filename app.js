@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * WebSocket to TCP Stratum Proxy
- * Full Logic: User Tracking + Leaderboard API + Mining Bridge
+ * T COIN PROXY SERVER
+ * Full Logic: WebSocket <-> TCP Stratum Bridge
+ * Added: Wallet Generator API + Coin Balance Calculation
  */
 'use strict';
 
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto'); // Thêm: Dùng để tạo địa chỉ ví ngẫu nhiên
 const WebSocket = require('ws');
 const Pool = require('@marco_ciaramella/stratum-client');
-const url = require('url'); // Thêm thư viện xử lý URL
+const url = require('url');
 
 // --- 1. LOAD CONFIG ---
 let config;
@@ -22,12 +24,18 @@ try {
 
 const WS_PORT = process.env.PORT || 8080;
 
-// --- 2. KHO DỮ LIỆU USER ---
-// Lưu trữ thông tin từng người đào để làm Bảng xếp hạng
-// Cấu trúc: { "TenUser": { accepted: 0, rejected: 0, lastSeen: timestamp } }
-const userStats = {};
+// Cấu hình T Coin (Dùng để tính hiển thị số dư)
+const COIN_CONFIG = {
+    name: "T Coin",
+    symbol: "TC",
+    rewardPerShare: 0.125 // Giả lập: 1 Share = 0.125 TC
+};
 
-// Biến tổng (Optional)
+// --- 2. KHO DỮ LIỆU USER (MINERS) ---
+// Cấu trúc: { "TCxxxx...": { accepted: 0, rejected: 0, lastSeen: timestamp } }
+const miners = {};
+
+// Biến tổng toàn mạng
 let globalStats = { accepted: 0, rejected: 0 };
 
 const ALGO_MAP = {
@@ -44,70 +52,94 @@ const ALGO_MAP = {
     yespowerADVC: 'cwm_yespowerADVC',
 };
 
-// --- 3. HTTP SERVER (API & STATUS) ---
+// --- 3. HTTP SERVER (API: Stats + Create Wallet) ---
 const server = http.createServer((req, res) => {
-    // Cấu hình CORS để Frontend (index.html) có thể gọi API này
+    // Cấu hình CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Content-Type', 'application/json');
 
-    // API Endpoint: Trả về dữ liệu Bảng xếp hạng (JSON)
+    // === API MỚI: TẠO VÍ T COIN ===
+    if (req.url === '/api/wallet/create') {
+        // Tạo chuỗi hex ngẫu nhiên 8 ký tự -> TCxxxxxxxx
+        const randomHex = crypto.randomBytes(4).toString('hex').toUpperCase();
+        const newWallet = `TC${randomHex}`;
+        
+        // Khởi tạo dữ liệu cho ví mới ngay lập tức
+        miners[newWallet] = { accepted: 0, rejected: 0, lastSeen: Date.now() };
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ 
+            status: 'success', 
+            wallet: newWallet,
+            message: 'Wallet generated successfully'
+        }));
+        return;
+    }
+
+    // === API: TRẢ VỀ BẢNG XẾP HẠNG & SỐ DƯ ===
     if (req.url === '/api/stats') {
-        const sortedUsers = Object.entries(userStats)
-            .sort(([, a], [, b]) => b.accepted - a.accepted) // Sắp xếp người nhiều share nhất lên đầu
-            .map(([name, stat], index) => ({
+        const sortedMiners = Object.entries(miners)
+            .sort(([, a], [, b]) => b.accepted - a.accepted) // Sắp xếp theo Share
+            .map(([wallet, stat], index) => ({
                 rank: index + 1,
-                name: name,
-                accepted: stat.accepted,
+                wallet: wallet, // Trả về ID ví thay vì name
+                shares: stat.accepted,
+                // Tính số dư dựa trên số share
+                balance: (stat.accepted * COIN_CONFIG.rewardPerShare).toFixed(4), 
                 rejected: stat.rejected,
-                lastSeen: stat.lastSeen
+                lastSeen: stat.lastSeen,
+                status: (Date.now() - stat.lastSeen < 15000) ? 'online' : 'offline'
             }));
         
-        const totalAccepted = sortedUsers.reduce((sum, u) => sum + u.accepted, 0);
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200);
         res.end(JSON.stringify({ 
-            total: totalAccepted, 
-            miners: sortedUsers 
+            network: {
+                name: COIN_CONFIG.name,
+                symbol: COIN_CONFIG.symbol,
+                total_shares: globalStats.accepted
+            },
+            miners: sortedMiners 
         }));
         return;
     }
 
     // Trang chủ hiển thị text đơn giản
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end(`PROXY RUNNING\nPort: ${WS_PORT}\nAPI Endpoint: /api/stats\nTotal Shares: ${globalStats.accepted}`);
+    res.end(`[T COIN PROXY] RUNNING\nPort: ${WS_PORT}\nEndpoints:\n - /api/stats (Leaderboard)\n - /api/wallet/create (Generate ID)`);
 });
 
-// --- 4. WEBSOCKET SERVER ---
+// --- 4. WEBSOCKET SERVER (STRATUM BRIDGE) ---
 const wss = new WebSocket.Server({
     server,
     perMessageDeflate: false,
     maxPayload: 100 * 1024,
 });
 
-console.log(`[PROXY] WebSocket listening on port: ${WS_PORT}`);
+console.log(`🚀 [PROXY] WebSocket listening on port: ${WS_PORT}`);
 
 const sendJson = (ws, payload) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 };
 
 wss.on('connection', (ws, req) => {
-    // 1. Lấy tên User từ URL (Ví dụ: ws://host:8080/?user=Miner01)
+    // 1. Lấy Wallet ID từ URL (Ví dụ: ws://host:8080/?user=TC1234AB)
     const parameters = url.parse(req.url, true).query;
-    // Lấy tên, nếu không có thì đặt là Anonymous, cắt bớt nếu quá dài
-    const username = (parameters.user || 'Anonymous').substring(0, 20);
+    // Nếu không có user, gán Anonymous
+    const walletId = (parameters.user || 'Anonymous').substring(0, 30);
     const clientIp = req.socket.remoteAddress;
 
-    // 2. Khởi tạo stats cho user này nếu chưa có
-    if (!userStats[username]) {
-        userStats[username] = { accepted: 0, rejected: 0, lastSeen: Date.now() };
+    // 2. Khởi tạo stats cho ví này nếu chưa có
+    if (!miners[walletId]) {
+        miners[walletId] = { accepted: 0, rejected: 0, lastSeen: Date.now() };
     }
 
     const { pool, wallet, password, argent, algo } = config;
     const [host, port] = pool.split(':');
     const selectedAlgo = ALGO_MAP[algo] ?? 'cwm_power2B';
 
-    console.log(`[WS] New Miner Connected: ${username} (${clientIp})`);
+    console.log(`🔌 [WS] Miner Connected: ${walletId} (${clientIp})`);
 
     // Gửi lệnh Initialize cho Browser
     sendJson(ws, { id: 'initialize', method: 'initialize', params: [selectedAlgo] });
@@ -117,22 +149,23 @@ wss.on('connection', (ws, req) => {
     const startStratumClient = () => {
         if (client) return;
 
+        // Kết nối TCP tới Pool thật
         client = Pool({
             server: host,
             port: Number(port),
-            worker: wallet,
+            worker: wallet, // LƯU Ý: Đây là ví thật của Admin trong config.json
             password: password,
             userAgent: argent,
             ssl: false,
             autoReconnectOnError: true,
             onConnect: () => {
-                console.log(`[TCP] Pool Connected for ${username}`);
+                console.log(`✅ [TCP] Pool Connected for ${walletId}`);
             },
             onClose: () => {
                 if (ws.readyState === WebSocket.OPEN) ws.close();
             },
             onError: (error) => {
-                console.log(`[TCP Error] ${username}: ${error.message}`);
+                console.log(`❌ [TCP Error] ${walletId}: ${error.message}`);
             },
             onNewDifficulty: (newDiff) => {
                 sendJson(ws, { id: 'difficulty', method: 'difficulty', params: [newDiff] });
@@ -143,24 +176,24 @@ wss.on('connection', (ws, req) => {
             
             // --- XỬ LÝ KHI SHARE THÀNH CÔNG ---
             onSubmitWorkSuccess: (error, result) => {
-                // Cập nhật cho User
-                userStats[username].accepted++;
-                userStats[username].lastSeen = Date.now();
+                // Cập nhật cho User (Wallet ID)
+                miners[walletId].accepted++;
+                miners[walletId].lastSeen = Date.now();
                 
                 // Cập nhật Global
                 globalStats.accepted++;
 
-                console.log(`[SUCCESS] User: ${username} | Total: ${userStats[username].accepted}`);
+                console.log(`💰 [SUCCESS] Wallet: ${walletId} | Shares: ${miners[walletId].accepted}`);
                 sendJson(ws, { id: 'success', method: 'success', params: [error, result] });
             },
 
             // --- XỬ LÝ KHI SHARE THẤT BẠI ---
             onSubmitWorkFail: (error, result) => {
-                userStats[username].rejected++;
-                userStats[username].lastSeen = Date.now();
+                miners[walletId].rejected++;
+                miners[walletId].lastSeen = Date.now();
                 globalStats.rejected++;
 
-                console.log(`[REJECT] User: ${username}`);
+                console.log(`⚠️ [REJECT] Wallet: ${walletId}`);
                 sendJson(ws, { id: 'failed', method: 'failed', params: [error, result] });
             }
         });
@@ -170,8 +203,8 @@ wss.on('connection', (ws, req) => {
         try {
             const msg = JSON.parse(data);
             
-            // Cập nhật thời gian hoạt động
-            if (userStats[username]) userStats[username].lastSeen = Date.now();
+            // Cập nhật thời gian hoạt động (Heartbeat)
+            if (miners[walletId]) miners[walletId].lastSeen = Date.now();
 
             switch (msg.id) {
                 case 'ready':
@@ -180,6 +213,7 @@ wss.on('connection', (ws, req) => {
                 case 'submit':
                     if (client) {
                         const shared = msg.params[0];
+                        // Submit công việc lên Pool
                         client.submit(wallet, shared.job_id, shared.extranonce2, shared.ntime, shared.nonce);
                     }
                     break;
@@ -191,7 +225,11 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    ws.on('close', () => client?.shutdown());
+    ws.on('close', () => {
+        console.log(`👋 [WS] Disconnected: ${walletId}`);
+        if (client) client.shutdown();
+    });
+    
     ws.on('error', () => client?.shutdown());
 });
 
