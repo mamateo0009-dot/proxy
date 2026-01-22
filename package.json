@@ -1,15 +1,26 @@
 {
-    "name": "proxy",
-    "version": "1.0.0",
-    "main": "index.js",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
-    "author": "",
-    "license": "ISC",
-    "description": "",
-    "dependencies": {
-        "@marco_ciaramella/stratum-client": "^1.4.0",
-        "ws": "^8.19.0"
-    }
+  "name": "t-coin-proxy",
+  "version": "1.0.0",
+  "description": "WebSocket to TCP Stratum Proxy for Web Mining",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "stratum",
+    "proxy",
+    "websocket",
+    "mining",
+    "nodejs"
+  ],
+  "author": "Admin",
+  "license": "ISC",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "@marco_ciaramella/stratum-client": "^1.4.0",
+    "ws": "^8.19.0"
+  }
 }
