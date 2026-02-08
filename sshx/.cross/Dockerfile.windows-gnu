@@ -1,0 +1,6 @@
+FROM ghcr.io/cross-rs/x86_64-pc-windows-gnu:main
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*

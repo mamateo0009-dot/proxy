@@ -1,0 +1,36 @@
+# Rust
+/target/
+/target-cross/
+**/*.rs.bk
+Cargo.lock
+
+# Node.js
+/node_modules/
+/build/
+/.svelte-kit/
+/package-lock.json
+/yarn.lock
+
+# Build Artifacts
+/build_artifacts/
+/a.out
+*.exe
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+mprocs.log

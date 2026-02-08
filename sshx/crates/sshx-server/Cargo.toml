@@ -1,0 +1,46 @@
+[package]
+name = "sshx-server"
+version.workspace = true
+license.workspace = true
+description.workspace = true
+keywords.workspace = true
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+async-channel = "1.9.0"
+async-stream = "0.3.5"
+axum = { version = "0.8.1", default-features = false, features = ["http2", "ws", "tokio", "json"] }
+base64 = "0.21.4"
+bytes = { version = "1.5.0", features = ["serde"] }
+ciborium = "0.2.1"
+clap.workspace = true
+dashmap = { version = "5.5.3", default-features = false }
+deadpool = "0.12.2"
+deadpool-redis = "0.18.0"
+futures-util = { version = "0.3.28", default-features = false, features = ["sink"] }
+hmac = "0.12.1"
+http = "1.2.0"
+parking_lot = "0.12.1"
+prost.workspace = true
+rand.workspace = true
+redis = { version = "0.27.6", default-features = false, features = ["tokio-rustls-comp", "tls-rustls-webpki-roots"] }
+serde.workspace = true
+sha2 = "0.10.7"
+sshx-core.workspace = true
+subtle = "2.5.0"
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-tungstenite = { version = "0.26.1", default-features = false, features = ["connect"] }
+tonic.workspace = true
+tonic-reflection.workspace = true
+tower = { version = "0.4.13", default-features = false, features = ["steer"] }
+tower-http = { version = "0.6.2", default-features = false, features = ["fs", "trace"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zstd = { version = "0.12.4", default-features = false }
+sysinfo = { version = "0.30", default-features = false }
+
+[dev-dependencies]
+reqwest = { version = "0.12.12", default-features = false, features = ["rustls-tls"] }
+sshx = { path = "../sshx" }
