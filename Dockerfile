@@ -1,5 +1,5 @@
 # =========================
-# 1️⃣ Build sshx-server (Cargo)
+# 1️⃣ Build sshx-server (Rust workspace)
 # =========================
 FROM rust:1.75-alpine AS rust-builder
 
@@ -7,10 +7,14 @@ RUN apk add --no-cache musl-dev openssl-dev pkgconfig
 
 WORKDIR /build
 
-COPY sshx/crates/sshx-server ./sshx-server
-WORKDIR /build/sshx-server
+# Copy workspace manifest trước (để cache tốt)
+COPY sshx/Cargo.toml sshx/Cargo.lock ./
 
-RUN cargo build --release
+# Copy toàn bộ crates
+COPY sshx/crates ./crates
+
+# Build đúng crate trong workspace
+RUN cargo build --release -p sshx-server
 
 
 # =========================
@@ -24,23 +28,21 @@ WORKDIR /app
 
 # Copy binary đã build
 COPY --from=rust-builder \
-  /build/sshx-server/target/release/sshx-server \
+  /build/target/release/sshx-server \
   /app/sshx-server
 
 RUN chmod +x /app/sshx-server
 
-# Copy toàn bộ project sshx (frontend)
+# Copy frontend
 COPY sshx ./sshx
 
-# Cài npm trong thư mục sshx
 WORKDIR /app/sshx
 RUN npm install
 
-# Giữ nguyên như file cũ
 EXPOSE 5173 8080
 
 # =========================
-# 3️⃣ Chạy đúng như yêu cầu
+# 3️⃣ Run giống file cũ
 # =========================
 CMD sh -c "\
   /app/sshx-server \
